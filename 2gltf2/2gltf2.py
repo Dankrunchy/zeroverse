@@ -57,6 +57,12 @@ def main():
     output_basename = sys.argv[sys.argv.index("--") + 2]
     root, current_extension = os.path.splitext(input_path)
     current_directory = os.path.dirname(input_path)
+    output_directory = current_directory
+
+    # accept path instead as well, use last segment as basename
+    if ('/' in output_basename or '\\' in output_basename):
+        output_directory = os.path.dirname(output_basename)
+        output_basename = os.path.basename(output_basename)
 
     if current_extension != ".abc" and current_extension != ".blend" and current_extension != ".dae" and current_extension != ".fbx" and current_extension != ".obj" and current_extension != ".ply" and current_extension != ".stl" and current_extension != ".usd" and current_extension != ".usda" and current_extension != ".usdc" and current_extension != ".wrl" and current_extension != ".x3d":
         print("Unsupported file format: " + current_extension)
@@ -78,18 +84,27 @@ def main():
         bpy.ops.import_scene.fbx(filepath=input_path)
 
     if current_extension == ".obj":
-        bpy.ops.import_scene.obj(filepath=input_path)
+        # bpy.ops.import_scene.obj(filepath=input_path)
+        bpy.ops.wm.obj_import(filepath=input_path)
 
     if current_extension == ".ply":
-        bpy.ops.import_mesh.ply(filepath=input_path)
+        # bpy.ops.import_mesh.ply(filepath=input_path)
+        bpy.ops.wm.ply_import(filepath=input_path)
 
     if current_extension == ".stl":
-        bpy.ops.import_mesh.stl(filepath=input_path)
+        # bpy.ops.import_mesh.stl(filepath=input_path)
+        bpy.ops.wm.stl_import(filepath=input_path)
 
     if current_extension == ".usd" or current_extension == ".usda" or current_extension == ".usdc":
         bpy.ops.wm.usd_import(filepath=input_path)
 
     if current_extension == ".wrl" or current_extension == ".x3d":
+        if "x3d" not in dir(bpy.ops.import_scene):
+            # Newer Blender versions require X3D Extension to be installed manually
+            bpy.ops.extensions.package_install(repo_index=0,
+                                               pkg_id="web3d_x3d_vrml2_format",
+                                               enable_on_install=True)
+        # finally
         bpy.ops.import_scene.x3d(filepath=input_path)
 
     # import roughness
@@ -145,7 +160,7 @@ def main():
                     roughness_node.location = bsdf_node.location + Vector((-300, 0))
                     links.new(roughness_node.outputs['Color'], bsdf_node.inputs['Roughness'])
 
-    export_file = current_directory + "/" + output_basename + ".gltf"
+    export_file = output_directory + "/" + output_basename + ".gltf"
     print("Writing: '" + export_file + "'")
     bpy.ops.export_scene.gltf(filepath=export_file)
 

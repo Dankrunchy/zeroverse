@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 
-def convert_files_in_directory(directory, extension):
+def convert_files_in_directory(directory, extension="obj", gltf_dir = None):
     directory = Path(directory)
     glbs = []
     for file in directory.rglob(f'*.{extension}'):
@@ -15,18 +15,19 @@ def convert_files_in_directory(directory, extension):
             continue
         print(f"Converting file: {file}")
         # Call the Blender conversion script for each file
-        basename = file.parent.name  # uuid/object.obj -> uuid
+        basename = (gltf_dir or file.parent.parent) / file.parent.parent.name  # uuid/object.obj -> uuid
+        glbs.append(basename)
         subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file.resolve(), basename])
 
     return glbs  # glb Paths
 
 
-def convert_file(path):
-    basename = path.parent.parent.name  # split/uuid/shape/object.obj -> uuid
+def convert_file(path, gltf_dir = None):
+    basename = (gltf_dir or path.parent.parent) / path.parent.parent.name  # split/uuid/shape/object.obj -> uuid
     print(f"Converting file: {path}")
     # Call the Blender conversion script for each file
     subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", path.resolve(), basename])
-    return str(path / f'{basename}.glb')
+    return str(f'{basename}.glb')
 
 
 def convert_obj_to_glb(dir, extension, write_data_list):

@@ -17,7 +17,7 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from common import *
-from convert_obj_to_glb import convert_file
+from convert_obj_to_glb import convert_file, convert_files_in_directory
 
 
 class NpEncoder(json.JSONEncoder):
@@ -1212,7 +1212,7 @@ def get_matsynth_material(base_output_dir):
 
     # save files for a single material
     for i, x in enumerate(ds['train']):
-        save_dir = Path(f"{base_output_dir}{x['name']}")
+        save_dir = Path(base_output_dir, str(x['name']))
         save_dir.mkdir(parents=True, exist_ok=True)
         for k in mat_keys:
             if k == "name":
@@ -1232,6 +1232,8 @@ if __name__ == "__main__":
     parser.add_argument('--smooth_probability', default=1.0, type=float, help='possibility of smoothing the height field')
     parser.add_argument('--sub_obj_num_poss', type=str, default='5,5,5,4,4,3,2,1,1', help='comma separated list of possibilities for number of sub objects')
     parser.add_argument('--no_hf', default=False, action='store_true', help='do not use height field')
+    # NEW
+    parser.add_argument('--gltf_dir', default=False, action='store_true', help='Stores all gltfs in a flat output directory for all converted object files. Otherwise object file is stored inside outputs objects folders.')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
@@ -1250,14 +1252,23 @@ if __name__ == "__main__":
     if args.dont_convert_to_glb:
         pass
     else:
+        gltf_dir = None
+        if args.gltf_dir:
+            gltf_dir = Path(out_dir) / "gltfs"
+
         if len(output_paths) == 1:
             json_output_fn = str(output_paths[0]).replace('object.obj', f'{args.uuid_str.split("/")[-1]}_original_parameters.json')
             with open(json_output_fn, 'w') as f:
                 json.dump(shapes_parameters[0], f, indent=4, cls=NpEncoder)
             print(f'Saved {json_output_fn}')
-            convert_file(output_paths[0])
+            convert_file(output_paths[0], gltf_dir)
             convert_time = time.time()
         else:
-            raise NotImplementedError('Converting multiple files to glb is not yet supported')
+            for i in range(len(shapes_parameters)):
+                json_output_fn = str(output_paths[i]).replace('object.obj', f'{args.uuid_str.split("/")[-1]}_original_parameters.json')
+                with open(json_output_fn, 'w') as f:
+                    json.dump(shapes_parameters[i], f, indent=4, cls=NpEncoder)
+            convert_files_in_directory(out_dir, gltf_dir=gltf_dir)
+            convert_time = time.time()
         print(f'TIME - create_shapes.py: shape_generation_time: {shape_generation_time - start_time:.2f}s, convert_time: {convert_time - shape_generation_time:.2f}s')
 

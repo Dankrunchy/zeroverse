@@ -13,6 +13,7 @@ import time
 import uuid
 import json
 from datasets import load_dataset
+import multiprocess as mp
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -335,10 +336,10 @@ class Shape(object):
             self.matNames += otherShape.matNames
             self.matStartId = np.append(self.matStartId, otherShape.matStartId + curFN).astype(int)
         else:
-            self.points = np.row_stack([self.points, otherShape.points])
-            self.uvs = np.row_stack([self.uvs, otherShape.uvs])
-            self.faces = np.row_stack([self.faces, otherShape.faces+curPN])
-            self.facesUV = np.row_stack([self.facesUV, otherShape.facesUV+curUN])
+            self.points = np.vstack([self.points, otherShape.points])
+            self.uvs = np.vstack([self.uvs, otherShape.uvs])
+            self.faces = np.vstack([self.faces, otherShape.faces+curPN])
+            self.facesUV = np.vstack([self.facesUV, otherShape.facesUV+curUN])
             self.matNames += otherShape.matNames
             self.matStartId = np.append(self.matStartId, otherShape.matStartId+curFN).astype(int)
 
@@ -427,8 +428,8 @@ class Shape(object):
             self.points = np.reshape(points, (-1, 3))
             self.uvs = np.rehsape(uvs, (-1, 2))
         else:
-            self.points = np.row_stack([self.points, points])
-            self.uvs = np.row_stack([self.uvs, uvs])
+            self.points = np.vstack([self.points, points])
+            self.uvs = np.vstack([self.uvs, uvs])
 
         # create faces
         tempFaces = []
@@ -462,8 +463,8 @@ class Shape(object):
             self.facesUV = tempFaces.copy()
             self.matStartId = self.matStartId = np.asarray([0],int)
         else:
-            self.faces = np.row_stack([self.faces, tempFaces+startPId])
-            self.facesUV = np.row_stack([self.facesUV, tempFaces+startUId])
+            self.faces = np.vstack([self.faces, tempFaces+startPId])
+            self.facesUV = np.vstack([self.facesUV, tempFaces+startUId])
             self.matStartId = np.append(self.matStartId, [startFaceId])
 
         self.matNames.append(matName)
@@ -692,13 +693,13 @@ class Cube(Shape):
                 oneFaces.append((curId, rightBottomId, rightId))
                 oneFaces.append((curId, bottomId, rightBottomId))
         oneFaces = np.reshape(oneFaces, (-1,3)).astype(int)
-        self.faces = np.row_stack([oneFaces,
+        self.faces = np.vstack([oneFaces,
                                    oneFaces + self.pointNumPerFace,
                                    oneFaces + self.pointNumPerFace*2,
                                    oneFaces + self.pointNumPerFace*3,
                                    oneFaces + self.pointNumPerFace*4,
                                    oneFaces + self.pointNumPerFace*5])
-        self.facesUV = self.faces.copy()#np.row_stack([oneFaces, oneFaces, oneFaces, oneFaces, oneFaces, oneFaces])
+        self.facesUV = self.faces.copy()#np.vstack([oneFaces, oneFaces, oneFaces, oneFaces, oneFaces, oneFaces])
 
         #points
         #front
@@ -737,7 +738,7 @@ class Cube(Shape):
             point = (xz[0], -self.axisB, xz[1])
             self.points.append(point)
 
-        self.uvs = np.reshape(np.row_stack([self.uvs, self.uvs, self.uvs, self.uvs, self.uvs, self.uvs]), (-1, 2))
+        self.uvs = np.reshape(np.vstack([self.uvs, self.uvs, self.uvs, self.uvs, self.uvs, self.uvs]), (-1, 2))
 
         self.points = np.reshape(self.points, (-1, 3)).astype(float)
         self.uvs = np.reshape(self.uvs, (-1, 2)).astype(float)
@@ -1134,10 +1135,10 @@ def createShapes(outFolder, shapeNum, subObjNum = 6):
         ms.genInfo(subFolder + "/object.info")
 
 
-def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 4, 5, 6, 7, 8, 9], sub_obj_num_poss=[1, 2, 3, 7, 10, 7, 3, 2, 1],
+def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 2, 3, 4, 5, 6, 7, 8, 9], sub_obj_num_poss=[1, 2, 3, 7, 10, 7, 3, 2, 1],
                        bMultiObj=False, bPermuteMat=True, candShapes=[0,1,2],
                        bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
-                       bOneMatPerShape=False):
+                       bOneMatPerShape=False, bUseMultiProcessing=True):
     """
     randomly sample one of subObjNums (each with subObjPoss possibilities) number of sub objects for each scene,
     create a MultiShape, and save the .obj shape, .txt material list, and .info files.
@@ -1164,15 +1165,18 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
     chooses = np.random.uniform(0, 1.0, len(shapeIds))
     output_paths = []
     shapes_parameters = []
-    for ii, i in enumerate(shapeIds):  # for each MultiShape
+
+    def _create_multishape(ii, i):
         shape_parameters = {'uuid_str': uuid_str}
+        _counts = np.zeros(len(sub_obj_nums))
+
 
         choose = chooses[ii]
         sub_obj_num = sub_obj_nums[-1]
         for iO in range(len(sub_obj_bound)):
             if choose < sub_obj_bound[iO]:  # randomly choose a sub obj
                 sub_obj_num = sub_obj_nums[iO]
-                counts[iO] += 1
+                _counts[iO] += 1
                 break
 
         shape_parameters['sub_obj_num'] = sub_obj_num
@@ -1186,7 +1190,8 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
         new_uuid = str(uuid.uuid4())
         subFolder = Path(outFolder) / new_uuid / 'shape'
         subFolder.mkdir(parents=True, exist_ok=True)
-        output_paths.append(subFolder / 'object.obj')
+        # output_paths.append(subFolder / 'object.obj')
+        out_path = subFolder / 'object.obj'
         subFolder = str(subFolder.resolve())
 
         sub_objs_vals = list(ms.genShape(no_hf=no_hf, bOneMatPerShape=bOneMatPerShape))
@@ -1205,7 +1210,31 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
         ms.genMatList(subFolder + "/object.txt")
         ms.genInfo(subFolder + "/object.info")
 
-        shapes_parameters.append(shape_parameters)
+        # shapes_parameters.append(shape_parameters)
+        return out_path, shape_parameters, _counts
+    
+    # Create ProcessPool to create multiple objects using different seeds 
+    # without the need of creating a bootstrap program
+    if bUseMultiProcessing and len(shapeIds) > 1:
+        with mp.Pool() as pool:    # open as many processes as cores available
+            def _seed_and_commit(ii_i):
+                ii, i = ii_i
+                seed_everything(seed+ii)
+                return _create_multishape(ii, i)
+
+            results = pool.imap_unordered(_seed_and_commit, enumerate(shapeIds))
+            for _ in shapeIds:
+                o_path, s_param, count = next(results)
+                output_paths.append(o_path)
+                shapes_parameters.append(s_param)
+                counts += count
+    else:
+        for ii, i in enumerate(shapeIds):  # for each MultiShape
+            o_path, s_param, count = _create_multishape(ii, i)
+            output_paths.append(o_path)
+            shapes_parameters.append(s_param)
+            counts += count
+
     print(counts)
     return output_paths, shapes_parameters
 
@@ -1213,7 +1242,7 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
 mat_keys = ["name", "basecolor", "metallic", "normal", "roughness"]
 
 
-def get_matsynth_material(base_output_dir, load_materials=10) -> list[Path]:
+def get_matsynth_material(base_output_dir, load_materials=10, debug=False) -> list[Path]:
     ds = load_dataset(
         "gvecchio/MatSynth",
         streaming=True,
@@ -1224,7 +1253,8 @@ def get_matsynth_material(base_output_dir, load_materials=10) -> list[Path]:
     # or keep only specified columns
     ds = ds.select_columns(mat_keys)
     # shuffle data
-    ds = ds.shuffle(buffer_size=min(load_materials, 10))
+    if not debug:
+        ds = ds.shuffle(buffer_size=min(load_materials, 10))
 
     # filter data matching a specific criteria, e.g.: only CC0 materials
     # ds = ds.filter(lambda x: x["metadata"]["license"] == "CC0")
@@ -1270,7 +1300,7 @@ if __name__ == "__main__":
     parser.add_argument('--gltf_dir', default=False, action='store_true', help='Stores all gltfs in a flat output directory for all converted object files. Otherwise object file is stored inside outputs objects folders.')
     parser.add_argument('--num_materials', default=10, type=int, help='number of materials to load and randomly use for shapes')
     parser.add_argument('--one_material_per_primitive', default=False, action='store_true', help='Use one mesh per primitive (shape) instead of per surface (i.e. a Cube has 6 surfaces, a Cylinder 3, an Ellipsoid 1.)')
-
+    parser.add_argument('--dont_use_multiprocessing', default=False, action='store_true', help='Don\'t use multiprocessing when generating multiple objects (use only when custom seeds are required)')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
@@ -1280,10 +1310,10 @@ if __name__ == "__main__":
     out_dir = args.output_dir
     num_shapes = args.num_shapes
 
-    mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials)
+    mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials, debug=True)
 
     output_paths, shapes_parameters = createVarObjShapes(
-        out_dir, range(num_shapes), 
+        out_dir, range(num_shapes), args.seed,
         uuid_str=args.uuid_str,
         bMultiObj=False,
         bPermuteMat=False, # scrambles surface connectivity, only activate if needed!
@@ -1294,6 +1324,7 @@ if __name__ == "__main__":
         sub_obj_num_poss=args.sub_obj_num_poss,
         no_hf=args.no_hf,
         bOneMatPerShape=args.one_material_per_primitive,
+        bUseMultiProcessing=not args.dont_use_multiprocessing
     )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)

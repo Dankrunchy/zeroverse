@@ -209,7 +209,7 @@ class Shape(object):
                 dest_dir = os.path.dirname(filePath)
                 material_files = ["basecolor.png", "metallic.png", "normal.png", "roughness.png"]
                 for material_file in material_files:
-                    src_path = os.path.join(mat_path, material_file)
+                    src_path = os.path.join(get_random_material(), material_file)
                     dest_path = os.path.join(dest_dir, f"{im:02d}_{material_file}")
                     rel_src_path = os.path.relpath(src_path, dest_dir)
                     if os.path.exists(dest_path):
@@ -300,6 +300,7 @@ class Shape(object):
         with open(filePath, "w") as f:
             for matname in self.matNames:
                 f.write("%s\n"%matname)
+
     def genInfo(self, filePath):
         with open(filePath, "w") as f:
             minP = np.min(self.points, axis=0)
@@ -307,7 +308,6 @@ class Shape(object):
             print(minP, maxP)
             f.write("%f %f %f\n" % (minP[0], minP[1], minP[2]))
             f.write("%f %f %f\n" % (maxP[0], maxP[1], maxP[2]))
-
 
     def translate(self, translation):
         self.points += translation
@@ -353,26 +353,39 @@ class Shape(object):
         startFaceId = len(self.faces)
 
         center = np.reshape(center, 3)
-        points = []
+        # points = []
+        points = np.empty(3 * (1 + (circelRes[0]-1) * circelRes[1])).reshape(-1, 3)
         uvs = []
-        points.append(center)
+        # points.append(center)
+        points[0] = center
         uvs.append((0.5, 0.5))
 
         # create points
-        for iy in range(1, circelRes[0]):
-            for ix in range(circelRes[1]):
-                ra = float(axisA) * iy / (circelRes[0] - 1)
-                rb = float(axisB) * iy / (circelRes[0] - 1)
+        # for iy in range(1, circelRes[0]):
+        #     for ix in range(circelRes[1]):
+        #         ra = float(axisA) * iy / (circelRes[0] - 1)
+        #         rb = float(axisB) * iy / (circelRes[0] - 1)
 
+        #         phi = float(ix) /(circelRes[1]) * 2.0 * np.pi
 
-                phi = float(ix) /(circelRes[1]) * 2.0 * np.pi
+        #         x = ra *  np.cos(phi)
+        #         y = rb *  np.sin(phi)
 
-                x = ra *  np.cos(phi)
-                y = rb *  np.sin(phi)
+        #         p = x*X + y*Y + center
+        #         points.append(p)
+        
+        # More efficient numpy variant
+        ras = axisA * np.arange(1, circelRes[0]) / (circelRes[0] - 1)
+        rbs = axisB * np.arange(1, circelRes[0]) / (circelRes[0] - 1)
 
+        phis = np.arange(circelRes[1]) / (circelRes[1]) * 2.0 * np.pi
 
-                p = x*X + y*Y + center
-                points.append(p)
+        xs = np.multiply(*np.meshgrid(np.cos(phis), ras)).reshape(-1,1)
+        ys = np.multiply(*np.meshgrid(np.sin(phis), rbs)).reshape(-1,1)
+
+        ps = xs * X.reshape(1,3) + ys * Y.reshape(1,3) + center.reshape(1,3)
+        points[1:] = ps
+
         # create uvs
         for iy in range(1, circelRes[0]):
             for ix in range(circelRes[1]):
@@ -538,7 +551,6 @@ class Ellipsoid(Shape):
     def genShape(self, matName = "mat"):
         super(Ellipsoid, self).__init__()
 
-
         self.points.append((0,0,self.axisC))
         self.uvs.append((0,0))
 
@@ -633,11 +645,11 @@ class Ellipsoid(Shape):
 class Cube(Shape):
     """faces:
     front: c = 1
-    back: c = -1
-    left: a = -1
+    back:  c = -1
+    left:  a = -1
     right: a = 1
-    up: b = 1
-    down: b = -1
+    up:    b = 1
+    down:  b = -1
 
     """
     def __init__(self, a=1.0, b=1.0, c=1.0, faceRes=(50, 50)):
@@ -657,32 +669,35 @@ class Cube(Shape):
 
 
         #uvs
-        for iy in range(self.faceRes[0]):
-            for ix in range(self.faceRes[1]):
-                u = float(ix) / (self.faceRes[1] - 1)
-                v = float(iy) / (self.faceRes[0] - 1)
-                self.uvs.append((u,v))
-        self.uvs = np.reshape(self.uvs, (-1,2))
+        # for iy in range(self.faceRes[0]):
+        #     for ix in range(self.faceRes[1]):
+        #         u = float(ix) / (self.faceRes[1] - 1)
+        #         v = float(iy) / (self.faceRes[0] - 1)
+        #         self.uvs.append((u,v))
+        # self.uvs = np.reshape(self.uvs, (-1,2))
+        us = np.arange(self.faceRes[0]) / (self.faceRes[1] - 1)
+        vs = np.arange(self.faceRes[1]) / (self.faceRes[0] - 1)
+        self.uvs = np.stack(np.meshgrid(vs, us), axis=-1).reshape(-1,2)
 
         #face:
         #oneFace:
         oneFaces = []
         for iy in range(self.faceRes[0] - 1):
             for ix in range(self.faceRes[1] - 1):
-                curId = iy * self.faceRes[1] + ix + 1
+                curId   = iy * self.faceRes[1] + ix + 1
                 rightId = iy * self.faceRes[1] + ix + 1 + 1
-                bottomId = (iy + 1) * self.faceRes[1] + ix + 1
+                bottomId      = (iy + 1) * self.faceRes[1] + ix + 1
                 rightBottomId = (iy + 1) * self.faceRes[1] + ix + 1 + 1
 
                 oneFaces.append((curId, rightBottomId, rightId))
                 oneFaces.append((curId, bottomId, rightBottomId))
         oneFaces = np.reshape(oneFaces, (-1,3)).astype(int)
         self.faces = np.row_stack([oneFaces,
-                                      oneFaces + self.pointNumPerFace,
-                                      oneFaces + self.pointNumPerFace*2,
-                                      oneFaces + self.pointNumPerFace*3,
-                                      oneFaces + self.pointNumPerFace*4,
-                                      oneFaces + self.pointNumPerFace*5])
+                                   oneFaces + self.pointNumPerFace,
+                                   oneFaces + self.pointNumPerFace*2,
+                                   oneFaces + self.pointNumPerFace*3,
+                                   oneFaces + self.pointNumPerFace*4,
+                                   oneFaces + self.pointNumPerFace*5])
         self.facesUV = self.faces.copy()#np.row_stack([oneFaces, oneFaces, oneFaces, oneFaces, oneFaces, oneFaces])
 
         #points
@@ -862,7 +877,6 @@ class Cylinder(Shape):
     def genShape(self, matName = "mat"):
         super(Cylinder, self).__init__()
 
-
         # create points
         for iy in range(self.meshRes[0]):
             for ix in range(self.meshRes[1]):
@@ -1031,10 +1045,10 @@ class MultiShape(Shape):
         self.translateRangeRate = translateRangeRate
         self.rotateRange = rotateRange
         self.candShapes = candShapes
-    def genShape(self, no_hf=False):
+
+    def genShape(self, no_hf=False, bOneMatPerShape=False):
         """ For each shape, randomly sample parameters (axis, height field, rotation, translation) and create the shape. """
         super(MultiShape, self).__init__()
-
 
         primitive_ids = []
         axis_vals_s = []
@@ -1077,6 +1091,9 @@ class MultiShape(Shape):
             subShape.genShape(matName="mat_shape%d"%iS)
             subShape.applyHeightField(hfs)
 
+            if bOneMatPerShape:
+                subShape.matNames   = subShape.matNames[:1]
+                subShape.matStartId = subShape.matStartId[:1]
 
             subShape.rotate((1, 0, 0), rotation[0])
             subShape.rotate((0, 1, 0), rotation[1])
@@ -1119,7 +1136,8 @@ def createShapes(outFolder, shapeNum, subObjNum = 6):
 
 def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 4, 5, 6, 7, 8, 9], sub_obj_num_poss=[1, 2, 3, 7, 10, 7, 3, 2, 1],
                        bMultiObj=False, bPermuteMat=True, candShapes=[0,1,2],
-                       bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False):
+                       bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
+                       bOneMatPerShape=False):
     """
     randomly sample one of subObjNums (each with subObjPoss possibilities) number of sub objects for each scene,
     create a MultiShape, and save the .obj shape, .txt material list, and .info files.
@@ -1160,7 +1178,10 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
         shape_parameters['sub_obj_num'] = sub_obj_num
         shape_parameters['sub_objs'] = [{} for _ in range(sub_obj_num)]
         print(f'i: {i}, sub_obj_num: {sub_obj_num}')
-        ms = MultiShape(sub_obj_num, candShapes=candShapes, smoothPossibility=smooth_probability)
+        ms = MultiShape(sub_obj_num, 
+                        candShapes=candShapes, 
+                        smoothPossibility=smooth_probability
+                        )
         # create a folder for each shape, with a uuid name
         new_uuid = str(uuid.uuid4())
         subFolder = Path(outFolder) / new_uuid / 'shape'
@@ -1168,7 +1189,7 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
         output_paths.append(subFolder / 'object.obj')
         subFolder = str(subFolder.resolve())
 
-        sub_objs_vals = list(ms.genShape(no_hf=no_hf))
+        sub_objs_vals = list(ms.genShape(no_hf=no_hf, bOneMatPerShape=bOneMatPerShape))
         if bPermuteMat:
             ms.permuteMatIds()
 
@@ -1192,7 +1213,7 @@ def createVarObjShapes(outFolder, shapeIds, uuid_str='', sub_obj_nums=[1, 2, 3, 
 mat_keys = ["name", "basecolor", "metallic", "normal", "roughness"]
 
 
-def get_matsynth_material(base_output_dir):
+def get_matsynth_material(base_output_dir, load_materials=10) -> list[Path]:
     ds = load_dataset(
         "gvecchio/MatSynth",
         streaming=True,
@@ -1203,23 +1224,36 @@ def get_matsynth_material(base_output_dir):
     # or keep only specified columns
     ds = ds.select_columns(mat_keys)
     # shuffle data
-    ds = ds.shuffle(buffer_size=1)
+    ds = ds.shuffle(buffer_size=min(load_materials, 10))
 
     # filter data matching a specific criteria, e.g.: only CC0 materials
     # ds = ds.filter(lambda x: x["metadata"]["license"] == "CC0")
     # filter out data from Deschaintre et al. 2018
     # ds = ds.filter(lambda x: x["metadata"]["source"] != "deschaintre_2020")
 
-    # save files for a single material
+    # save files for a single OR MULTIPLE materials
+    save_paths = []
     for i, x in enumerate(ds['train']):
-        save_dir = Path(base_output_dir, str(x['name']))
+        if i >= load_materials:
+            break
+        save_dir = Path(base_output_dir, 'materials', str(x['name']))
         save_dir.mkdir(parents=True, exist_ok=True)
         for k in mat_keys:
             if k == "name":
                 continue
             x[k].resize((512,512)).save(save_dir / f'{k}.png')  # TODO material resolution, default seems to be 4k, which results in 1GB .glb file per object
-        break
-    return str(save_dir.resolve())
+        save_paths.append(save_dir.resolve()) 
+    return save_paths
+
+
+def get_random_material(load_from_dir=False) -> str:
+    """return string path to randomly sampled material"""
+    # TODO additionally load materials from assumed directory?
+    mat_path = globals().get("mat_path")
+    if not mat_path:
+        raise RuntimeError("Can't call 'get_random_material' before materials have been downloaded!")
+
+    return str(np.random.choice(mat_path))
 
 
 if __name__ == "__main__":
@@ -1234,6 +1268,9 @@ if __name__ == "__main__":
     parser.add_argument('--no_hf', default=False, action='store_true', help='do not use height field')
     # NEW
     parser.add_argument('--gltf_dir', default=False, action='store_true', help='Stores all gltfs in a flat output directory for all converted object files. Otherwise object file is stored inside outputs objects folders.')
+    parser.add_argument('--num_materials', default=10, type=int, help='number of materials to load and randomly use for shapes')
+    parser.add_argument('--one_material_per_primitive', default=False, action='store_true', help='Use one mesh per primitive (shape) instead of per surface (i.e. a Cube has 6 surfaces, a Cylinder 3, an Ellipsoid 1.)')
+
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
@@ -1243,9 +1280,21 @@ if __name__ == "__main__":
     out_dir = args.output_dir
     num_shapes = args.num_shapes
 
-    mat_path = get_matsynth_material(out_dir)
+    mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials)
 
-    output_paths, shapes_parameters = createVarObjShapes(out_dir, range(num_shapes), uuid_str=args.uuid_str, bMultiObj=False, bPermuteMat=True, bScaleMesh=True, bMaxDimRange=[0.3, 0.45], smooth_probability=args.smooth_probability, sub_obj_nums=list(range(1, len(args.sub_obj_num_poss)+1)), sub_obj_num_poss=args.sub_obj_num_poss, no_hf=args.no_hf)
+    output_paths, shapes_parameters = createVarObjShapes(
+        out_dir, range(num_shapes), 
+        uuid_str=args.uuid_str,
+        bMultiObj=False,
+        bPermuteMat=False, # scrambles surface connectivity, only activate if needed!
+        bScaleMesh=True,
+        bMaxDimRange=[0.3, 0.45],
+        smooth_probability=args.smooth_probability,
+        sub_obj_nums=list(range(1, len(args.sub_obj_num_poss)+1)),
+        sub_obj_num_poss=args.sub_obj_num_poss,
+        no_hf=args.no_hf,
+        bOneMatPerShape=args.one_material_per_primitive,
+    )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)
 

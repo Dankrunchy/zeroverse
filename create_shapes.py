@@ -3,6 +3,7 @@ import numpy as np
 import pickle
 from pathlib import Path
 import argparse
+import bpy
 import sys
 import cv2
 import os
@@ -19,6 +20,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from common import *
 from convert_obj_to_glb import convert_file, convert_files_in_directory
+from zeroverse_rgba import reset_scene, normalize_scene
+import augment_shape
 
 
 class NpEncoder(json.JSONEncoder):
@@ -1138,7 +1141,8 @@ def createShapes(outFolder, shapeNum, subObjNum = 6):
 def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 2, 3, 4, 5, 6, 7, 8, 9], sub_obj_num_poss=[1, 2, 3, 7, 10, 7, 3, 2, 1],
                        bMultiObj=False, bPermuteMat=True, candShapes=[0,1,2],
                        bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
-                       bOneMatPerShape=False, bUseMultiProcessing=True):
+                       bOneMatPerShape=False, bUseMultiProcessing=True,
+                       boolean_probability=0.0, wireframe_probability=0.0):
     """
     randomly sample one of subObjNums (each with subObjPoss possibilities) number of sub objects for each scene,
     create a MultiShape, and save the .obj shape, .txt material list, and .info files.
@@ -1209,6 +1213,23 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
                 shape_parameters['sub_objs'][iS][key] = sub_objs_vals[i_key][iS].tolist() if isinstance(sub_objs_vals[i_key][iS], np.ndarray) else sub_objs_vals[i_key][iS]
         ms.genMatList(subFolder + "/object.txt")
         ms.genInfo(subFolder + "/object.info")
+
+        if boolean_probability > 0 or wireframe_probability > 0:
+            reset_scene()
+            obj_name = augment_shape.load_object_return_name(str(out_path))
+            normalize_scene()
+
+        if boolean_probability > 0: # skip if boolean_probability is set to 0
+            augment_parameters = augment_shape.augment_with_boolean(obj_name, cut_type=None, probability=boolean_probability)
+            if augment_parameters['is_augmented']:
+                bpy.ops.wm.obj_export(filepath=str(out_path), check_existing=False)
+                shape_parameters.update(augment_parameters)
+
+        if wireframe_probability > 0:
+            wireframe_parameters = augment_shape.augment_a_wireframe_primitive(obj_name, random_subdivide_level=True, probability=wireframe_probability)
+            if wireframe_parameters['is_wireframed']:
+                bpy.ops.wm.obj_export(filepath=str(out_path), check_existing=False)
+                shape_parameters.update(augment_parameters)
 
         # shapes_parameters.append(shape_parameters)
         return out_path, shape_parameters, _counts
@@ -1301,6 +1322,8 @@ if __name__ == "__main__":
     parser.add_argument('--num_materials', default=10, type=int, help='number of materials to load and randomly use for shapes')
     parser.add_argument('--one_material_per_primitive', default=False, action='store_true', help='Use one mesh per primitive (shape) instead of per surface (i.e. a Cube has 6 surfaces, a Cylinder 3, an Ellipsoid 1.)')
     parser.add_argument('--dont_use_multiprocessing', default=False, action='store_true', help='Don\'t use multiprocessing when generating multiple objects (use only when custom seeds are required)')
+    parser.add_argument('--boolean_probability', default=0.0, type=float, help='possibility of boolean cutouts (applied with blender)')
+    parser.add_argument('--wireframe_probability', default=0.0, type=float, help='possibility of wireframes (applied with blender)')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
@@ -1324,7 +1347,9 @@ if __name__ == "__main__":
         sub_obj_num_poss=args.sub_obj_num_poss,
         no_hf=args.no_hf,
         bOneMatPerShape=args.one_material_per_primitive,
-        bUseMultiProcessing=not args.dont_use_multiprocessing
+        bUseMultiProcessing=not args.dont_use_multiprocessing,
+        boolean_probability=args.boolean_probability,
+        wireframe_probability=args.wireframe_probability,
     )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)

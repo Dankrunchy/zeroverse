@@ -20,8 +20,10 @@ def load_object_return_name(object_path: str) -> str:
         bpy.ops.import_scene.gltf(filepath=object_path, merge_vertices=True)
     elif object_path.endswith(".fbx"):
         bpy.ops.import_scene.fbx(filepath=object_path)
+    elif object_path.endswith(".obj"):
+        bpy.ops.wm.obj_import(filepath=object_path)
     else:
-        raise ValueError(f"Unsupported file type: {object_path}. Only .glb and .fbx files are supported.")
+        raise ValueError(f"Unsupported file type: {object_path}. Only .glb, .fbx and .obj files are supported.")
 
     # Determine the names of the newly imported object(s)
     after_import = set(obj.name for obj in bpy.context.scene.objects)
@@ -133,6 +135,10 @@ def add_primitive_at_location(location, size, prim_type='sphere', random_type=Fa
         rotation_euler = tuple(
             (random.uniform(0, 360) for _ in range(3)))  # Generating random rotation angles for X, Y, Z
         obj.rotation_euler = [radians(angle) for angle in rotation_euler]  # Convert angles to radians and apply
+
+    # Use smooth shading for cleaner cutouts
+    obj.data.polygons.foreach_set('use_smooth', [True] * len(obj.data.polygons))
+    obj.data.update()
 
     return obj.name, rotation_euler, prim_type
 

@@ -33,90 +33,91 @@ class NpEncoder(json.JSONEncoder):
         return super(NpEncoder, self).default(obj)
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--object_path",
-    type=str,
-    required=True,
-    help="Path to the object file",
-)
-parser.add_argument("--output_dir", type=str, default="../renderings")
-parser.add_argument("--ibl_path", type=str, default="")
-parser.add_argument(
-    "--engine", type=str, default="CYCLES", choices=["CYCLES", "BLENDER_EEVEE"]
-)
-parser.add_argument("--save_norm_glb", action="store_true", help="Save normalized glb")
-parser.add_argument("--only_use_cpu", action="store_true", help="Use CPU rendering")
-parser.add_argument(
-    "--keep_exr", action="store_true", help="Keep EXR files after rendering"
-)
-parser.add_argument(
-    "--no_tonemap", action="store_true", help="Do not tonemap the images"
-)
-parser.add_argument("--local_cache_dir", type=str, default="../local_cache")
-parser.add_argument("--boolean_probability", type=float, default=0.0)
-parser.add_argument("--wireframe_probability", type=float, default=0.0)
-parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--radius_min', type=float, default=1.5)
-parser.add_argument('--radius_max', type=float, default=2.8)
-args = parser.parse_args()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--object_path",
+        type=str,
+        required=True,
+        help="Path to the object file",
+    )
+    parser.add_argument("--output_dir", type=str, default="../renderings")
+    parser.add_argument("--ibl_path", type=str, default="")
+    parser.add_argument(
+        "--engine", type=str, default="CYCLES", choices=["CYCLES", "BLENDER_EEVEE"]
+    )
+    parser.add_argument("--save_norm_glb", action="store_true", help="Save normalized glb")
+    parser.add_argument("--only_use_cpu", action="store_true", help="Use CPU rendering")
+    parser.add_argument(
+        "--keep_exr", action="store_true", help="Keep EXR files after rendering"
+    )
+    parser.add_argument(
+        "--no_tonemap", action="store_true", help="Do not tonemap the images"
+    )
+    parser.add_argument("--local_cache_dir", type=str, default="../local_cache")
+    parser.add_argument("--boolean_probability", type=float, default=0.0)
+    parser.add_argument("--wireframe_probability", type=float, default=0.0)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--radius_min', type=float, default=1.5)
+    parser.add_argument('--radius_max', type=float, default=2.8)
+    args = parser.parse_args()
 
-raw_args = copy.deepcopy(args)
-
-
-# Set up temp dir
-print(f"old temp_dir: {tempfile.gettempdir()}")
-temp_dir = os.path.join(args.local_cache_dir, "tmp", str(uuid.uuid4()))
-os.makedirs(temp_dir, exist_ok=True)
-tempfile.tempdir = temp_dir
-print(f"new temp_dir: {tempfile.gettempdir()}")
-
-# Detect devices
-bpy.context.preferences.addons["cycles"].preferences.get_devices()
-
-# Use OptiX
-bpy.context.preferences.addons["cycles"].preferences.compute_device_type = "OPTIX"
-bpy.context.scene.cycles.device = "GPU"
-bpy.context.preferences.addons["cycles"].preferences.get_devices()
-
-for d in bpy.context.preferences.addons["cycles"].preferences.devices:
-    d["use"] = 1  # Using all devices, include GPU and CPU
+    raw_args = copy.deepcopy(args)
 
 
-if args.only_use_cpu:
-    bpy.context.preferences.addons["cycles"].preferences.compute_device_type = "NONE"
-    bpy.context.scene.cycles.device = 'CPU'
+    # Set up temp dir
+    print(f"old temp_dir: {tempfile.gettempdir()}")
+    temp_dir = os.path.join(args.local_cache_dir, "tmp", str(uuid.uuid4()))
+    os.makedirs(temp_dir, exist_ok=True)
+    tempfile.tempdir = temp_dir
+    print(f"new temp_dir: {tempfile.gettempdir()}")
+
+    # Detect devices
+    bpy.context.preferences.addons["cycles"].preferences.get_devices()
+
+    # Use OptiX
+    bpy.context.preferences.addons["cycles"].preferences.compute_device_type = "OPTIX"
+    bpy.context.scene.cycles.device = "GPU"
+    bpy.context.preferences.addons["cycles"].preferences.get_devices()
 
     for d in bpy.context.preferences.addons["cycles"].preferences.devices:
-        if d["type"] == "GPU":
-            d["use"] = 0  # disable GPU
+        d["use"] = 1  # Using all devices, include GPU and CPU
 
-print(
-    f"bpy.context.preferences.addons['cycles'].preferences.compute_device_type: {bpy.context.preferences.addons['cycles'].preferences.compute_device_type}"
-)
 
-# Speed up rendering of the same scene
-bpy.context.scene.render.use_persistent_data = True
+    if args.only_use_cpu:
+        bpy.context.preferences.addons["cycles"].preferences.compute_device_type = "NONE"
+        bpy.context.scene.cycles.device = 'CPU'
 
-context = bpy.context
-scene = context.scene
-render = scene.render
+        for d in bpy.context.preferences.addons["cycles"].preferences.devices:
+            if d["type"] == "GPU":
+                d["use"] = 0  # disable GPU
 
-render.engine = args.engine
-render.image_settings.file_format = "OPEN_EXR"
-render.image_settings.color_mode = "RGBA"
-render.resolution_x = 512
-render.resolution_y = 512
-render.resolution_percentage = 100
+    print(
+        f"bpy.context.preferences.addons['cycles'].preferences.compute_device_type: {bpy.context.preferences.addons['cycles'].preferences.compute_device_type}"
+    )
 
-scene.cycles.samples = 64
-scene.cycles.diffuse_bounces = 1
-scene.cycles.glossy_bounces = 1
-scene.cycles.transparent_max_bounces = 3
-scene.cycles.transmission_bounces = 3
-scene.cycles.filter_width = 1.5
-scene.cycles.use_denoising = True
-scene.render.film_transparent = True
+    # Speed up rendering of the same scene
+    bpy.context.scene.render.use_persistent_data = True
+
+    context = bpy.context
+    scene = context.scene
+    render = scene.render
+
+    render.engine = args.engine
+    render.image_settings.file_format = "OPEN_EXR"
+    render.image_settings.color_mode = "RGBA"
+    render.resolution_x = 512
+    render.resolution_y = 512
+    render.resolution_percentage = 100
+
+    scene.cycles.samples = 64
+    scene.cycles.diffuse_bounces = 1
+    scene.cycles.glossy_bounces = 1
+    scene.cycles.transparent_max_bounces = 3
+    scene.cycles.transmission_bounces = 3
+    scene.cycles.filter_width = 1.5
+    scene.cycles.use_denoising = True
+    scene.render.film_transparent = True
 
 
 def add_uniform_lighting():

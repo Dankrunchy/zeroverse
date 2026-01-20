@@ -1,37 +1,49 @@
 import sys
 import argparse
 import subprocess
+import multiprocessing as mp
 import time
 from pathlib import Path
+
+
+def _run_conversion(file: Path, basename: Path):
+    print(f"Converting file: {file}")
+    subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file, basename])
 
 
 def convert_files_in_directory(directory, extension="obj", gltf_dir = None):
     directory = Path(directory)
     glbs = []
+    files = []
     for file in directory.rglob(f'*.{extension}'):
         # check if a glb file already exists in the same directory as file
         if list(file.parent.rglob('*.glb')):  # empty list is False, non-empty list is True
             print(f"Skipping file: {file} because a .glb file already exists in the same directory.")
             continue
-        print(f"Converting file: {file}")
+        # print(f"Converting file: {file}")
         # Call the Blender conversion script for each file
         basename = (gltf_dir or file.parent.parent) / file.parent.parent.name  # uuid/object.obj -> uuid
         glbs.append(basename)
-        subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file.resolve(), basename])
+        files.append(file.resolve())
+        # subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file.resolve(), basename])
+    
+    # convert multiple files in parallel
+    with mp.Pool() as pool:
+        pool.starmap(_run_conversion, zip(files, glbs))
 
     return glbs  # glb Paths
 
 
 def convert_file(path, gltf_dir = None):
     basename = (gltf_dir or path.parent.parent) / path.parent.parent.name  # split/uuid/shape/object.obj -> uuid
-    print(f"Converting file: {path}")
+    # print(f"Converting file: {path}")
     # Call the Blender conversion script for each file
-    subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", path.resolve(), basename])
+    # subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", path.resolve(), basename])
+    _run_conversion(path.resolve(), basename)
     return str(f'{basename}.glb')
 
 
 def convert_obj_to_glb(dir, extension, write_data_list):
-
     # Run the conversion on the specified directory
     start_time = time.time()
     glbs = convert_files_in_directory(dir, extension)

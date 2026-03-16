@@ -222,7 +222,7 @@ class Shape(object):
                 # symlink the material files to the output folder
                 dest_dir = os.path.dirname(filePath)
                 material_files = ["basecolor.png", "metallic.png", "normal.png", "roughness.png"]
-                material_path = get_random_material()
+                material_path = get_random_material(Path(out_dir) / 'materials') # use None or empty if only newly loaded materials shall be used
                 for material_file in material_files:
                     src_path = os.path.join(material_path, material_file)
                     dest_path = os.path.join(dest_dir, f"{im:02d}_{material_file}")
@@ -1198,9 +1198,15 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
         shape_parameters['sub_obj_num'] = sub_obj_num
         shape_parameters['sub_objs'] = [{} for _ in range(sub_obj_num)]
         print(f'i: {i}, sub_obj_num: {sub_obj_num}')
+        optional_arg = {}
+        # cheap: assume if only ellipsoids, if only one ellipsoid is to be generated
+        if candShapes == [0] and len(sub_obj_nums) == 1:
+            optional_arg['axisRange'] = (1.0, 1.0)
+
         ms = MultiShape(sub_obj_num, 
                         candShapes=candShapes, 
-                        smoothPossibility=smooth_probability
+                        smoothPossibility=smooth_probability,
+                        **optional_arg
                         )
         # create a folder for each shape, with a uuid name
         new_uuid = str(uuid.uuid4())
@@ -1310,10 +1316,15 @@ def get_matsynth_material(base_output_dir, load_materials=10, debug=False) -> li
     return save_paths
 
 
-def get_random_material(load_from_dir=False) -> str:
+def get_random_material(load_from_dir: str = None) -> str:
     """return string path to randomly sampled material"""
-    # TODO additionally load materials from assumed directory?
-    mat_path = globals().get("mat_path")
+    mat_path: list[str] = globals().get("mat_path", [])
+
+    if load_from_dir != None:
+        ldir = Path(load_from_dir)
+        if ldir.exists() and ldir.is_dir():
+            mat_path.extend([str(i.resolve()) for i in ldir.iterdir()])
+
     if not mat_path:
         raise RuntimeError("Can't call 'get_random_material' before materials have been downloaded!")
 
@@ -1340,35 +1351,43 @@ if __name__ == "__main__":
     parser.add_argument('--normal_map_strength', default=1.0, type=float, help='multiplier for nomal map')
     parser.add_argument('--simpleMetallic', default=False, action='store_true', help='Use a single value for metallic instead of using a map')
     parser.add_argument('--simpleRoughness', default=False, action='store_true', help='Use a single value for roughness instead of using a map')
+    parser.add_argument('--singleSphereOnly', default=False, action='store_true', help='Use only spheres (special type ellipsoid) as target shape')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
+
+    # cheap solution to generate only a single sphere
+    if args.singleSphereOnly:
+        args.sub_obj_num_poss = [1]
+
     seed_everything(args.seed)
 
     start_time = time.time()
     out_dir = args.output_dir
     num_shapes = args.num_shapes
 
-    mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials, debug=True)
+    if args.num_materials > 0:
+        mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials, debug=True)
 
     output_paths, shapes_parameters = createVarObjShapes(
         out_dir, range(num_shapes), args.seed,
-        uuid_str=args.uuid_str,
-        bMultiObj=False,
-        bPermuteMat=False, # scrambles surface connectivity, only activate if needed!
-        bScaleMesh=True,
-        bMaxDimRange=[0.3, 0.45],
-        smooth_probability=args.smooth_probability,
-        sub_obj_nums=list(range(1, len(args.sub_obj_num_poss)+1)),
-        sub_obj_num_poss=args.sub_obj_num_poss,
-        no_hf=args.no_hf,
-        bOneMatPerShape=args.one_material_per_primitive,
-        bUseMultiProcessing=not args.no_multiprocessing,
-        boolean_probability=args.boolean_probability,
-        wireframe_probability=args.wireframe_probability,
-        fNormalMap=args.normal_map_strength,
-        bSimpleMetallic=args.simpleMetallic,
-        bSimpleRoughness=args.simpleRoughness,
+        uuid_str                = args.uuid_str,
+        candShapes              = [0] if args.singleSphereOnly else [0, 1, 2],
+        bMultiObj               = False,
+        bPermuteMat             = False, # scrambles surface connectivity, only activate if needed!
+        bScaleMesh              = True,
+        bMaxDimRange            = [0.3, 0.45],
+        smooth_probability      = args.smooth_probability,
+        sub_obj_nums            = list(range(1, len(args.sub_obj_num_poss)+1)),
+        sub_obj_num_poss        = args.sub_obj_num_poss,
+        no_hf                   = args.no_hf,
+        bOneMatPerShape         = args.one_material_per_primitive,
+        bUseMultiProcessing     = not args.no_multiprocessing,
+        boolean_probability     = args.boolean_probability,
+        wireframe_probability   = args.wireframe_probability,
+        fNormalMap              = args.normal_map_strength,
+        bSimpleMetallic         = args.simpleMetallic,
+        bSimpleRoughness        = args.simpleRoughness,
     )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)
@@ -1385,14 +1404,14 @@ if __name__ == "__main__":
             with open(json_output_fn, 'w') as f:
                 json.dump(shapes_parameters[0], f, indent=4, cls=NpEncoder)
             print(f'Saved {json_output_fn}')
-            convert_file(output_paths[0], gltf_dir)
+            convert_file(output_paths[0], gltf_dir, plain=args.simpleRoughness)
             convert_time = time.time()
         else:
             for i in range(len(shapes_parameters)):
                 json_output_fn = str(output_paths[i]).replace('object.obj', f'{args.uuid_str.split("/")[-1]}_original_parameters.json')
                 with open(json_output_fn, 'w') as f:
                     json.dump(shapes_parameters[i], f, indent=4, cls=NpEncoder)
-            convert_files_in_directory(out_dir, gltf_dir=gltf_dir)
+            convert_files_in_directory(out_dir, gltf_dir=gltf_dir, plain=args.simpleRoughness)
             convert_time = time.time()
         print(f'TIME - create_shapes.py: shape_generation_time: {shape_generation_time - start_time:.2f}s, convert_time: {convert_time - shape_generation_time:.2f}s')
 

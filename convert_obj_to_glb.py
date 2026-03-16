@@ -6,12 +6,15 @@ import time
 from pathlib import Path
 
 
-def _run_conversion(file: Path, basename: Path):
+def _run_conversion(file: Path, basename: Path, plain: bool = False):
     print(f"Converting file: {file}")
-    subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file, basename])
+    args = ["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", file, basename]
+    if plain:
+        args.append("plain")
+    subprocess.run(args)
 
 
-def convert_files_in_directory(directory, extension="obj", gltf_dir = None):
+def convert_files_in_directory(directory, extension="obj", gltf_dir = None, plain = False):
     directory = Path(directory)
     glbs = []
     files = []
@@ -29,17 +32,17 @@ def convert_files_in_directory(directory, extension="obj", gltf_dir = None):
     
     # convert multiple files in parallel
     with mp.Pool() as pool:
-        pool.starmap(_run_conversion, zip(files, glbs))
+        pool.starmap(_run_conversion, zip(files, glbs, [plain] * len(files)))
 
     return glbs  # glb Paths
 
 
-def convert_file(path, gltf_dir = None):
+def convert_file(path, gltf_dir = None, plain = False):
     basename = (gltf_dir or path.parent.parent) / path.parent.parent.name  # split/uuid/shape/object.obj -> uuid
     # print(f"Converting file: {path}")
     # Call the Blender conversion script for each file
     # subprocess.run(["blender", "-b", "-P", "2gltf2/2gltf2.py", "--", path.resolve(), basename])
-    _run_conversion(path.resolve(), basename)
+    _run_conversion(path.resolve(), basename, plain)
     return str(f'{basename}.glb')
 
 

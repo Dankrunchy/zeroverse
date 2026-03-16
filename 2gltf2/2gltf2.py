@@ -50,14 +50,19 @@ def load_image(image_path):
 def main():
     # read two arguments: the input file path and the output basename
     if len(sys.argv) < 3:
-        print("Usage: blender -b -P 2gltf2.py -- <input_file> <output_basename>")
+        print("Usage: blender -b -P 2gltf2.py -- <input_file> <output_basename> <plain(?)>")
         return
     # find the -- argument
-    input_path = sys.argv[sys.argv.index("--") + 1]
-    output_basename = sys.argv[sys.argv.index("--") + 2]
+    input_path              = sys.argv[sys.argv.index("--") + 1]
+    output_basename         = sys.argv[sys.argv.index("--") + 2]
+    plain_rough             = False
+    try:
+        plain_rough = (sys.argv[sys.argv.index("--") + 3].strip().lower() == "plain")
+    except:
+        pass # lazy evaluation
     root, current_extension = os.path.splitext(input_path)
-    current_directory = os.path.dirname(input_path)
-    output_directory = current_directory
+    current_directory       = os.path.dirname(input_path)
+    output_directory        = current_directory
 
     # accept path instead as well, use last segment as basename
     if ('/' in output_basename or '\\' in output_basename):
@@ -151,7 +156,7 @@ def main():
                     break
 
             # If Roughness texture is not connected, load and connect it
-            if not roughness_connected:
+            if not roughness_connected and not plain_rough:
                 print(f"linking roughness: {roughness_path} to {mat.name}")
                 roughness_image = load_image(roughness_path)
                 if roughness_image:

@@ -139,7 +139,8 @@ class Shape(object):
         self.matStartId = np.reshape(self.matStartId, -1)
 
     
-    def genObj(self, filePath, bMat = False, bComputeNormal=False, bScaleMesh=False, bMaxDimRange=[0.3, 0.5]):
+    def genObj(self, filePath, bMat=False, bComputeNormal=False, bScaleMesh=False, bMaxDimRange=[0.3, 0.5],
+               fNormalMap=1.0, bSimpleMetallic=False, bSimpleRoughness=False):
         """ write a .obj file containing points, normals, uvs, and faces"""
         
         if bScaleMesh:
@@ -205,15 +206,25 @@ class Shape(object):
                 # mat_path = all_mat_paths[material_id]  # random select a material
                 material_ids.append(0)  # TODO switch to material name
                 f.write(f"map_Kd {im:02d}_basecolor.png \n")
-                f.write(f"map_Ks {im:02d}_metallic.png \n")
-                f.write(f"map_Pr {im:02d}_roughness.png \n")
-                f.write(f"bump {im:02d}_normal.png \n")
+                if not bSimpleMetallic:
+                    f.write(f"map_refl {im:02d}_metallic.png \n")
+                else:
+                    f.write(f"Pm {random.random()} \n")
+
+                if not bSimpleMetallic:
+                    f.write(f"map_Pr {im:02d}_roughness.png \n")
+                else:
+                    f.write(f"Pr {random.random()} \n")
+
+                f.write(f"Ks 0.5 \n") # controls IOR specularity in blender
+                f.write(f"bump -bm {fNormalMap} {im:02d}_normal.png \n")
 
                 # symlink the material files to the output folder
                 dest_dir = os.path.dirname(filePath)
                 material_files = ["basecolor.png", "metallic.png", "normal.png", "roughness.png"]
+                material_path = get_random_material()
                 for material_file in material_files:
-                    src_path = os.path.join(get_random_material(), material_file)
+                    src_path = os.path.join(material_path, material_file)
                     dest_path = os.path.join(dest_dir, f"{im:02d}_{material_file}")
                     rel_src_path = os.path.relpath(src_path, dest_dir)
                     if os.path.exists(dest_path):
@@ -1142,7 +1153,8 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
                        bMultiObj=False, bPermuteMat=True, candShapes=[0,1,2],
                        bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
                        bOneMatPerShape=False, bUseMultiProcessing=True,
-                       boolean_probability=0.0, wireframe_probability=0.0):
+                       boolean_probability=0.0, wireframe_probability=0.0,
+                       fNormalMap=1.0, bSimpleMetallic=False, bSimpleRoughness=False):
     """
     randomly sample one of subObjNums (each with subObjPoss possibilities) number of sub objects for each scene,
     create a MultiShape, and save the .obj shape, .txt material list, and .info files.
@@ -1205,7 +1217,8 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
         if bMultiObj:
             ms.genMultiObj(subFolder, bComputeNormal=True)
 
-        max_dim, material_ids = ms.genObj(subFolder + "/object.obj", bMat=True, bComputeNormal=True, bScaleMesh=bScaleMesh, bMaxDimRange=bMaxDimRange)
+        max_dim, material_ids = ms.genObj(subFolder + "/object.obj", bMat=True, bComputeNormal=True, bScaleMesh=bScaleMesh, bMaxDimRange=bMaxDimRange, 
+                                          fNormalMap=fNormalMap, bSimpleMetallic=bSimpleMetallic, bSimpleRoughness=bSimpleRoughness)
         shape_parameters['max_dim'] = max_dim
         sub_objs_vals.append(material_ids)
         for i_key, key in enumerate(['primitive_id', 'axis_vals', 'translation', 'translation1', 'rotation', 'rotation1', 'height_fields', 'material_id']):
@@ -1321,9 +1334,12 @@ if __name__ == "__main__":
     parser.add_argument('--gltf_dir', default=False, action='store_true', help='Stores all gltfs in a flat output directory for all converted object files. Otherwise object file is stored inside outputs objects folders.')
     parser.add_argument('--num_materials', default=10, type=int, help='number of materials to load and randomly use for shapes')
     parser.add_argument('--one_material_per_primitive', default=False, action='store_true', help='Use one mesh per primitive (shape) instead of per surface (i.e. a Cube has 6 surfaces, a Cylinder 3, an Ellipsoid 1.)')
-    parser.add_argument('--dont_use_multiprocessing', default=False, action='store_true', help='Don\'t use multiprocessing when generating multiple objects (use only when custom seeds are required)')
+    parser.add_argument('--no_multiprocessing', default=False, action='store_true', help='Don\'t use multiprocessing when generating multiple objects (use only when custom seeds are required)')
     parser.add_argument('--boolean_probability', default=0.0, type=float, help='possibility of boolean cutouts (applied with blender)')
     parser.add_argument('--wireframe_probability', default=0.0, type=float, help='possibility of wireframes (applied with blender)')
+    parser.add_argument('--normal_map_strength', default=1.0, type=float, help='multiplier for nomal map')
+    parser.add_argument('--simpleMetallic', default=False, action='store_true', help='Use a single value for metallic instead of using a map')
+    parser.add_argument('--simpleRoughness', default=False, action='store_true', help='Use a single value for roughness instead of using a map')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
@@ -1347,9 +1363,12 @@ if __name__ == "__main__":
         sub_obj_num_poss=args.sub_obj_num_poss,
         no_hf=args.no_hf,
         bOneMatPerShape=args.one_material_per_primitive,
-        bUseMultiProcessing=not args.dont_use_multiprocessing,
+        bUseMultiProcessing=not args.no_multiprocessing,
         boolean_probability=args.boolean_probability,
         wireframe_probability=args.wireframe_probability,
+        fNormalMap=args.normal_map_strength,
+        bSimpleMetallic=args.simpleMetallic,
+        bSimpleRoughness=args.simpleRoughness,
     )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)

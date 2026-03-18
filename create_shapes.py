@@ -211,7 +211,7 @@ class Shape(object):
                 else:
                     f.write(f"Pm {random.random()} \n")
 
-                if not bSimpleMetallic:
+                if not bSimpleRoughness:
                     f.write(f"map_Pr {im:02d}_roughness.png \n")
                 else:
                     f.write(f"Pr {random.random()} \n")
@@ -1376,7 +1376,7 @@ if __name__ == "__main__":
         bMultiObj               = False,
         bPermuteMat             = False, # scrambles surface connectivity, only activate if needed!
         bScaleMesh              = True,
-        bMaxDimRange            = [0.3, 0.45],
+        bMaxDimRange            = [1.0, 1.0] if args.singleSphereOnly else [0.3, 0.45],
         smooth_probability      = args.smooth_probability,
         sub_obj_nums            = list(range(1, len(args.sub_obj_num_poss)+1)),
         sub_obj_num_poss        = args.sub_obj_num_poss,

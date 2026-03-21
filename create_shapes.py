@@ -145,7 +145,7 @@ class Shape(object):
 
     
     def genObj(self, filePath, bMat=False, bComputeNormal=False, bScaleMesh=False, bMaxDimRange=[0.3, 0.5],
-               fNormalMap=1.0, bSimpleMetallic=False, bSimpleRoughness=False):
+               fNormalMap=1.0, bfSimpleMetallic=False, bfSimpleRoughness=False):
         """ write a .obj file containing points, normals, uvs, and faces"""
         
         if bScaleMesh:
@@ -211,15 +211,21 @@ class Shape(object):
                 # mat_path = all_mat_paths[material_id]  # random select a material
                 material_ids.append(0)  # TODO switch to material name
                 f.write(f"map_Kd {im:02d}_basecolor.png \n")
-                if not bSimpleMetallic:
+                if bfSimpleMetallic is False:
                     f.write(f"map_refl {im:02d}_metallic.png \n")
-                else:
+                elif bfSimpleMetallic is None:
                     f.write(f"Pm {random.random()} \n")
-
-                if not bSimpleRoughness:
-                    f.write(f"map_Pr {im:02d}_roughness.png \n")
                 else:
+                    # bfSimpleMetallic is float (clamp to 0.0 and 1.0)
+                    f.write(f"Pm {np.clip(bfSimpleMetallic, 0, 1)} \n")
+
+                if bfSimpleRoughness is False:
+                    f.write(f"map_Pr {im:02d}_roughness.png \n")
+                elif bfSimpleRoughness is None:
                     f.write(f"Pr {random.random()} \n")
+                else:
+                    # bfSimpleRoughness is float (clamp to 0.0 and 1.0)
+                    f.write(f"Pr {np.clip(bfSimpleRoughness, 0, 1)} \n")
 
                 f.write(f"Ks 0.5 \n") # controls IOR specularity in blender
                 f.write(f"bump -bm {fNormalMap} {im:02d}_normal.png \n")
@@ -1218,7 +1224,7 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
                        bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
                        bOneMatPerShape=False, bUseMultiProcessing=True,
                        boolean_probability=0.0, wireframe_probability=0.0,
-                       fNormalMap=1.0, bSimpleMetallic=False, bSimpleRoughness=False):
+                       fNormalMap=1.0, bfSimpleMetallic=False, bfSimpleRoughness=False):
     """
     randomly sample one of subObjNums (each with subObjPoss possibilities) number of sub objects for each scene,
     create a MultiShape, and save the .obj shape, .txt material list, and .info files.
@@ -1288,7 +1294,7 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
             ms.genMultiObj(subFolder, bComputeNormal=True)
 
         max_dim, material_ids = ms.genObj(subFolder + "/object.obj", bMat=True, bComputeNormal=True, bScaleMesh=bScaleMesh, bMaxDimRange=bMaxDimRange, 
-                                          fNormalMap=fNormalMap, bSimpleMetallic=bSimpleMetallic, bSimpleRoughness=bSimpleRoughness)
+                                          fNormalMap=fNormalMap, bfSimpleMetallic=bfSimpleMetallic, bfSimpleRoughness=bfSimpleRoughness)
         shape_parameters['max_dim'] = max_dim
         sub_objs_vals.append(material_ids)
         for i_key, key in enumerate(['primitive_id', 'axis_vals', 'translation', 'translation1', 'rotation', 'rotation1', 'height_fields', 'material_id']):
@@ -1413,8 +1419,11 @@ if __name__ == "__main__":
     parser.add_argument('--boolean_probability', default=0.0, type=float, help='possibility of boolean cutouts (applied with blender)')
     parser.add_argument('--wireframe_probability', default=0.0, type=float, help='possibility of wireframes (applied with blender)')
     parser.add_argument('--normal_map_strength', default=1.0, type=float, help='multiplier for nomal map')
-    parser.add_argument('--simpleMetallic', default=False, action='store_true', help='Use a single value for metallic instead of using a map')
-    parser.add_argument('--simpleRoughness', default=False, action='store_true', help='Use a single value for roughness instead of using a map')
+   
+    # if given without float argument, args.simpleMetallic would be None, if '--simpleMetallic' is not given in command line, then False
+    parser.add_argument('--simpleMetallic', type=float, nargs='?', default=False, help='Use a single value for metallic instead of using a map. Using this option without specifying a value uses random values for the entire object.')
+    parser.add_argument('--simpleRoughness', type=float, nargs='?', default=False, help='Use a single value for roughness instead of using a map. Using this option without specifying a value uses random values for the entire object.')
+
     parser.add_argument('--spheresOnly', default=False, action='store_true', help='Use only spheres (special type ellipsoid) as target shape')
     parser.add_argument('--blobsOnly', default=False, action='store_true', help='Use only blobs as target shapes')
     parser.add_argument('--singleShape', default=False, action='store_true', help='Generate only one primary shape')
@@ -1460,8 +1469,8 @@ if __name__ == "__main__":
         boolean_probability     = args.boolean_probability,
         wireframe_probability   = args.wireframe_probability,
         fNormalMap              = args.normal_map_strength,
-        bSimpleMetallic         = args.simpleMetallic,
-        bSimpleRoughness        = args.simpleRoughness,
+        bfSimpleMetallic         = args.simpleMetallic,
+        bfSimpleRoughness        = args.simpleRoughness,
     )
     shape_generation_time = time.time()
     print('Saved shapes to', out_dir)

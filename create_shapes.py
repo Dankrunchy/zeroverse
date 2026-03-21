@@ -1487,7 +1487,7 @@ if __name__ == "__main__":
             with open(json_output_fn, 'w') as f:
                 json.dump(shapes_parameters[0], f, indent=4, cls=NpEncoder)
             print(f'Saved {json_output_fn}')
-            convert_file(output_paths[0], gltf_dir, plain=args.simpleRoughness)
+            convert_file(output_paths[0], gltf_dir, plain=args.simpleRoughness is not False)
             convert_time = time.time()
         else:
             for i in range(len(shapes_parameters)):

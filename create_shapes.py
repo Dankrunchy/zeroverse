@@ -106,6 +106,7 @@ class Shape(object):
         self.facesUV = []
         self.matNames = []
         self.matStartId = []
+        self.normals = []
 
         with open(filePath, "r") as f:
             #write v
@@ -120,6 +121,9 @@ class Shape(object):
                 if lineStr[:2] == "vt":
                     point = [float(val) for val in lineStr[3:-1].split(" ")]
                     self.uvs.append(point)
+                if lineStr[:2] == "vn":
+                    normal = [float(val) for val in lineStr[3:-1].split(" ")]
+                    self.normals.append(normal)
                 if lineStr[:len("usemtl")] == "usemtl":
                     self.matStartId.append(curFid)
                     self.matNames.append(lineStr[len("usemtl "):-1])
@@ -132,10 +136,11 @@ class Shape(object):
                         self.faces[-1].append(int(iduvids[0]))
                         self.facesUV[-1].append(int(iduvids[1]))
 
-        self.points = np.reshape(self.points, (-1, 3)).astype(float)
-        self.uvs = np.reshape(self.uvs, (-1, 2)).astype(float)
-        self.faces = np.reshape(self.faces, (-1, 3)).astype(int)
-        self.facesUV = np.reshape(self.facesUV, (-1, 3)).astype(int)
+        self.points     = np.reshape(self.points, (-1, 3)).astype(float)
+        self.normals    = np.reshape(self.normals, (-1, 3)).astype(float)
+        self.uvs        = np.reshape(self.uvs, (-1, 2)).astype(float)
+        self.faces      = np.reshape(self.faces, (-1, 3)).astype(int)
+        self.facesUV    = np.reshape(self.facesUV, (-1, 3)).astype(int)
         self.matStartId = np.reshape(self.matStartId, -1)
 
     
@@ -1041,17 +1046,72 @@ class Cylinder(Shape):
                 i += 1
 
 
+class Blob(Shape):
+    """Loads a Blob out of the blob dataset (https://people.csail.mit.edu/kimo/blobs/)
+    """
+    def __init__(self, a = 1.0, b = 1.0, c = 1.0, blob = -1):
+        super(Blob, self).__init__()
+        self.axisA = a
+        self.axisB = b
+        self.axisC = c
+        self.blob  = np.random.randint(1,11) if (blob < 1 or blob > 10) else blob
+        # self.numPoints = (self.meshRes[0] - 2) * self.meshRes[1] + 2
+
+    def genShape(self, matName = "mat"):
+        # load blob specified by number
+        blob_path = Path(__file__).parent / 'blobs' / f'blob{self.blob:02d}.obj'
+        super().loadSimpleObj(blob_path)
+        self.computeNormals() # don't use provided normals, something goes wrong with loaded normals from loadSimpleObj
+        self.matStartId = np.asarray([0], int)
+        self.matNames = [matName]
+
+    def applyHeightField(self, heightFields) -> bool:
+        if len(self.points) == 0:
+            print("no points")
+            return False
+        if len(heightFields.shape) != 2 and len(heightFields.shape) != 3:
+            print("wrong shape of heightfiels")
+            return False
+        if len(heightFields.shape) == 3:
+            heightField = heightFields[0]
+        else:
+            # len(heightFields.shape) must equal 2
+            heightField == heightFields
+
+        # Build a vertex -> UV mapping from face data as some blobs have UV seams
+        vertex_uv = np.full((len(self.points), 2), -1.0)
+        for face, faceUV in zip(self.faces, self.facesUV):
+            for vi, uvi in zip(face, faceUV):
+                vertex_uv[vi - 1] = self.uvs[uvi - 1]  # OBJ indices are 1-based
+
+        for i, point in enumerate(self.points):
+            uv = vertex_uv[i]
+            if uv[0] < 0:
+                continue  # vertex not referenced by any face
+            normal = self.normals[i] / np.linalg.norm(self.normals[i])
+            xy = uv * (heightField.shape[1], heightField.shape[0])
+            h = subPix(heightField, xy[0], xy[1])
+            self.points[i] = point + normal * h
+
+        return True
+    
+
+CAND_ELLIPSOID  = 0
+CAND_CUBE       = 1
+CAND_CYLINDER   = 2
+CAND_BLOB       = 3
+ALL_SHAPES      = [0,1,2,3]
 
 class MultiShape(Shape):
     """
     0: ellipsoid
     1: cube
     2: cylinder
-
+    3: blob
     """
     def __init__(self,
                  numShape = 6, smoothPossibility = 0.1, axisRange = (0.25, 2.0), heightRangeRate = (0, 0.2),
-                 translateRangeRate = (0, 0.5), rotateRange = (0, 180), candShapes=[0,1,2]):
+                 translateRangeRate = (0, 0.5), rotateRange = (0, 180), candShapes=ALL_SHAPES):
         super(MultiShape, self).__init__()
         self.numShape = numShape
         self.smoothPossibility = smoothPossibility
@@ -1096,12 +1156,16 @@ class MultiShape(Shape):
             if no_hf:
                 hfs = np.zeros_like(hfs)
 
-            if rp[0] == 0:
-                subShape = Ellipsoid(axisVals[0], axisVals[1], axisVals[2])
-            elif rp[0] == 1:
-                subShape = Cube(axisVals[0], axisVals[1], axisVals[2])
-            elif rp[0] == 2:
-                subShape = Cylinder(axisVals[0], axisVals[1], axisVals[2])
+            if rp[0] == CAND_ELLIPSOID:
+                subShape = Ellipsoid(*axisVals)
+            elif rp[0] == CAND_CUBE:
+                subShape = Cube(*axisVals)
+            elif rp[0] == CAND_CYLINDER:
+                subShape = Cylinder(*axisVals)
+            elif rp[0] == CAND_BLOB:
+                subShape = Blob(*axisVals)
+            else:
+                raise RuntimeError(f"Shape with id {rp[0]} does not exist")
 
             subShape.genShape(matName="mat_shape%d"%iS)
             subShape.applyHeightField(hfs)
@@ -1150,7 +1214,7 @@ def createShapes(outFolder, shapeNum, subObjNum = 6):
 
 
 def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 2, 3, 4, 5, 6, 7, 8, 9], sub_obj_num_poss=[1, 2, 3, 7, 10, 7, 3, 2, 1],
-                       bMultiObj=False, bPermuteMat=True, candShapes=[0,1,2],
+                       bMultiObj=False, bPermuteMat=True, candShapes=ALL_SHAPES,
                        bScaleMesh=False, bMaxDimRange=[0.3, 0.5], smooth_probability=1.0, no_hf=False,
                        bOneMatPerShape=False, bUseMultiProcessing=True,
                        boolean_probability=0.0, wireframe_probability=0.0,
@@ -1200,7 +1264,7 @@ def createVarObjShapes(outFolder, shapeIds, seed, uuid_str='', sub_obj_nums=[1, 
         print(f'i: {i}, sub_obj_num: {sub_obj_num}')
         optional_arg = {}
         # cheap: assume if only ellipsoids, if only one ellipsoid is to be generated
-        if candShapes == [0] and len(sub_obj_nums) == 1:
+        if candShapes == [CAND_ELLIPSOID] and len(sub_obj_nums) == 1:
             optional_arg['axisRange'] = (1.0, 1.0)
 
         ms = MultiShape(sub_obj_num, 
@@ -1351,13 +1415,15 @@ if __name__ == "__main__":
     parser.add_argument('--normal_map_strength', default=1.0, type=float, help='multiplier for nomal map')
     parser.add_argument('--simpleMetallic', default=False, action='store_true', help='Use a single value for metallic instead of using a map')
     parser.add_argument('--simpleRoughness', default=False, action='store_true', help='Use a single value for roughness instead of using a map')
-    parser.add_argument('--singleSphereOnly', default=False, action='store_true', help='Use only spheres (special type ellipsoid) as target shape')
+    parser.add_argument('--spheresOnly', default=False, action='store_true', help='Use only spheres (special type ellipsoid) as target shape')
+    parser.add_argument('--blobsOnly', default=False, action='store_true', help='Use only blobs as target shapes')
+    parser.add_argument('--singleShape', default=False, action='store_true', help='Generate only one primary shape')
 
     args = parser.parse_args()
     args.sub_obj_num_poss = [int(x) for x in args.sub_obj_num_poss.split(',')]
 
-    # cheap solution to generate only a single sphere
-    if args.singleSphereOnly:
+    # generate only one primary shape
+    if args.singleShape:
         args.sub_obj_num_poss = [1]
 
     seed_everything(args.seed)
@@ -1369,14 +1435,22 @@ if __name__ == "__main__":
     if args.num_materials > 0:
         mat_path = get_matsynth_material(out_dir, load_materials=args.num_materials, debug=True)
 
+    cand_shapes = []
+    if args.spheresOnly:
+        cand_shapes.append(CAND_ELLIPSOID)
+    if args.blobsOnly:
+        cand_shapes.append(CAND_BLOB)
+    if len(cand_shapes) == 0:
+        cand_shapes = ALL_SHAPES
+
     output_paths, shapes_parameters = createVarObjShapes(
         out_dir, range(num_shapes), args.seed,
         uuid_str                = args.uuid_str,
-        candShapes              = [0] if args.singleSphereOnly else [0, 1, 2],
+        candShapes              = cand_shapes,
         bMultiObj               = False,
         bPermuteMat             = False, # scrambles surface connectivity, only activate if needed!
         bScaleMesh              = True,
-        bMaxDimRange            = [1.0, 1.0] if args.singleSphereOnly else [0.3, 0.45],
+        bMaxDimRange            = [1.0, 1.0] if args.singleShape else [0.3, 0.45],
         smooth_probability      = args.smooth_probability,
         sub_obj_nums            = list(range(1, len(args.sub_obj_num_poss)+1)),
         sub_obj_num_poss        = args.sub_obj_num_poss,
